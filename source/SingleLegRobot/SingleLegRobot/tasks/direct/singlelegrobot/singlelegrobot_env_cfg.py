@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from isaaclab_assets.robots.cartpole import CARTPOLE_CFG
-from SingleLegRobot.robot.single_leg import NUM_MOVING_JOINTS, SINGLE_LEG_CONFIG
+from SingleLegRobot.robots.single_leg import NUM_MOVING_JOINTS, SINGLE_LEG_CONFIG
 from isaaclab.assets import ArticulationCfg
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg

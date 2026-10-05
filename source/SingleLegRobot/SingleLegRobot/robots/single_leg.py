@@ -4,7 +4,7 @@ from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
 import xml.etree.ElementTree as ET
 
-URDF_PATH = os.path.join(os.path.dirname(__file__), "data", "urdf" "URDFSingleLegModel.urdf")
+URDF_PATH = os.path.join(os.path.dirname(__file__), "data", "URDFSingleLegModel.urdf")
 MOUNT_HEIGHT = 0.8 # height of the leg top link above ground [m]
 DEFAULT_JOINT_POSITIONS = [0.0, 0.0, 0.0] # default joint positions for the leg [rad]
 
@@ -29,22 +29,27 @@ def count_moving_joints(urdf_path: str) -> int:
 NUM_MOVING_JOINTS = count_moving_joints(URDF_PATH)
 
 SINGLE_LEG_CONFIG = ArticulationCfg(
-    spawn=sim_utils.UrdfSpawnCfg(asset_path=URDF_PATH, fixed_base=True),
+    spawn=sim_utils.UrdfFileCfg(asset_path=URDF_PATH, fix_base=True),
     merge_fixed_joints=True,
     activate_contact_sensors=True,
     joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-        gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainscfg(
+        gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
             stiffness=STIFFNESS, damping=DAMPING
         )
     ),
-    articulation_props=sim_utils.UrdfConveterCfg.ArticlationPropertiesCfg(
+    articulation_props=sim_utils.ArticulationRootPropertiesCfg(
         enabled_self_collisions=False,
         solver_position_iteration_count=4,
-        solver_velocity_iteration_count=1,
-        max_depenetration_velocity=10.0,
-        max_angular_velocity=100.0,
+        solver_velocity_iteration_count=0,
+        
     ),
-    init_state=ArticulationCfg.InitStateCfg(
-        pos=(0.0, 0.0, MOUNT_HEIGHT), joint_pos=DEFAULT_JOINT_POSITIONS
-    ),
-                                                                                                              joint_limits = sim_utils.UrdfConverterCfg.JointLimitsCfg(effort_limit = EFFORT_LIMIT, velocity_limit = VELOCITY_LIMIT),  actuators = {"leg_motors": ImplicitActuatorCfg(joint_names_exr=[".*"], stiffness = STIFFNESS, damping = DAMPING, effort_limit = EFFORT_LIMIT, velocity_limit = VELOCITY_LIMIT, control_type = "effort")})                                    
+    init_state=ArticulationCfg.InitialStateCfg(
+        pos=(0.0, 0.0, MOUNT_HEIGHT), joint_pos=DEFAULT_JOINT_POSITIONS,),
+    actuators={"leg_motors": ImplicitActuatorCfg(
+        joint_names_expr=[".*"],
+        stiffness=STIFFNESS,
+        damping=DAMPING,
+        effort_limit_sim=EFFORT_LIMIT,
+        velocity_limit_sim=VELOCITY_LIMIT,
+    )},
+)
