@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from isaaclab_assets.robots.cartpole import CARTPOLE_CFG
-
+from SingleLegRobot.robot.single_leg import NUM_MOVING_JOINTS, SINGLE_LEG_CONFIG
 from isaaclab.assets import ArticulationCfg
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
@@ -15,28 +15,27 @@ from isaaclab.utils import configclass
 @configclass
 class SinglelegrobotEnvCfg(DirectRLEnvCfg):
     # env
-    decimation = 2
+    decimation = 4
     episode_length_s = 5.0
     # - spaces definition
-    action_space = 1
-    observation_space = 4
+    action_space = NUM_MOVING_JOINTS
+    observation_space = 2*NUM_MOVING_JOINTS  # joint positions, joint velocities, base position
     state_space = 0
 
     # simulation
-    sim: SimulationCfg = SimulationCfg(dt=1 / 120, render_interval=decimation)
+    sim: SimulationCfg = SimulationCfg(dt=1 / 200, render_interval=decimation)
 
     # robot(s)
-    robot_cfg: ArticulationCfg = CARTPOLE_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    robot_cfg: ArticulationCfg = SINGLE_LEG_CONFIG.replace(prim_path="/World/envs/env_.*/Robot")
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=4.0, replicate_physics=True)
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=100, env_spacing=2.0, replicate_physics=True)
 
     # custom parameters/scales
     # - controllable joint
-    cart_dof_name = "slider_to_cart"
-    pole_dof_name = "cart_to_pole"
+    dof_names = [".*"]
     # - action scale
-    action_scale = 100.0  # [N]
+    action_scale = 0.25 # [N]
     # - reward scales
     rew_scale_alive = 1.0
     rew_scale_terminated = -2.0

@@ -24,8 +24,10 @@ class SinglelegrobotEnv(DirectRLEnv):
     def __init__(self, cfg: SinglelegrobotEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self._cart_dof_idx, _ = self.robot.find_joints(self.cfg.cart_dof_name)
-        self._pole_dof_idx, _ = self.robot.find_joints(self.cfg.pole_dof_name)
+        self._cart_dof_idx, dof_names = self.robot.find_joints(self.cfg.dof_name)
+        #self._pole_dof_idx, _ = self.robot.find_joints(self.cfg.pole_dof_name)
+        print(f"[INFO] Leg joints controlled by the policy: {dof_names}")
+        print(f"[INFO] Leg Links controlled by the policy {self.robot.body_names}")
 
         self.joint_pos = self.robot.data.joint_pos
         self.joint_vel = self.robot.data.joint_vel
@@ -49,69 +51,47 @@ class SinglelegrobotEnv(DirectRLEnv):
         self.actions = actions.clone()
 
     def _apply_action(self) -> None:
-        self.robot.set_joint_effort_target(self.actions * self.cfg.action_scale, joint_ids=self._cart_dof_idx)
+        default_pos = self.robot.data.default_joint_pos[:, self.dof_idx] 
+        targets = default_pos + self.cfg.action_scale * self.actions
+        self.robot.set_joint_position_targets(targets, joint_ids = self.dof_idx)
 
     def _get_observations(self) -> dict:
-        obs = torch.cat(
-            (
-                self.joint_pos[:, self._pole_dof_idx[0]].unsqueeze(dim=1),
-                self.joint_vel[:, self._pole_dof_idx[0]].unsqueeze(dim=1),
-                self.joint_pos[:, self._cart_dof_idx[0]].unsqueeze(dim=1),
-                self.joint_vel[:, self._cart_dof_idx[0]].unsqueeze(dim=1),
-            ),
-            dim=-1,
-        )
-        observations = {"policy": obs}
+        joint_pos = self.robot.data.joint_pos[:, self.dof_idx] - self.robot.data.default_joint_pos[:, self.dof_idx]
+        joint_vel = self.robot.data.joint_vel[:, self.dof_idx]
+        observations = {"policy": torch.cat((joint_pos, joint_vel), dim=-1)}
         return observations
-
+        
+        
     def _get_rewards(self) -> torch.Tensor:
-        total_reward = compute_rewards(
-            self.cfg.rew_scale_alive,
-            self.cfg.rew_scale_terminated,
-            self.cfg.rew_scale_pole_pos,
-            self.cfg.rew_scale_cart_vel,
-            self.cfg.rew_scale_pole_vel,
-            self.joint_pos[:, self._pole_dof_idx[0]],
-            self.joint_vel[:, self._pole_dof_idx[0]],
-            self.joint_pos[:, self._cart_dof_idx[0]],
-            self.joint_vel[:, self._cart_dof_idx[0]],
-            self.reset_terminated,
-        )
+        joint_pos_error = self.robot.data.joint_pos[:, self.dof_idx] - self.robot.data.default_joint_pos[:,self.dof_idx]
+        total_reward = -torch.sum(torch.square(joint_pos_error), dim=-1)
         return total_reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        self.joint_pos = self.robot.data.joint_pos
+        time_out = self.episode_length_buf >= self.max_episode_length - 1
+        return False, time_out
+    """self.joint_pos = self.robot.data.joint_pos
         self.joint_vel = self.robot.data.joint_vel
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         out_of_bounds = torch.any(torch.abs(self.joint_pos[:, self._cart_dof_idx]) > self.cfg.max_cart_pos, dim=1)
         out_of_bounds = out_of_bounds | torch.any(torch.abs(self.joint_pos[:, self._pole_dof_idx]) > math.pi / 2, dim=1)
-        return out_of_bounds, time_out
+        return out_of_bounds, time_out"""
 
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = self.robot._ALL_INDICES
         super()._reset_idx(env_ids)
 
-        joint_pos = self.robot.data.default_joint_pos[env_ids]
-        joint_pos[:, self._pole_dof_idx] += sample_uniform(
-            self.cfg.initial_pole_angle_range[0] * math.pi,
-            self.cfg.initial_pole_angle_range[1] * math.pi,
-            joint_pos[:, self._pole_dof_idx].shape,
-            joint_pos.device,
-        )
-        joint_vel = self.robot.data.default_joint_vel[env_ids]
-
         default_root_state = self.robot.data.default_root_state[env_ids]
         default_root_state[:, :3] += self.scene.env_origins[env_ids]
 
-        self.joint_pos[env_ids] = joint_pos
-        self.joint_vel[env_ids] = joint_vel
-
+        joint_pos = self.robot.data.default_joint_pos[env_ids]
+        
+        joint_vel = self.robot.data.default_joint_vel[env_ids]
         self.robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self.robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
-
 
 @torch.jit.script
 def compute_rewards(
