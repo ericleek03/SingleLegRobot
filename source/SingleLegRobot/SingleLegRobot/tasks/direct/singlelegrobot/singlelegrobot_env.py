@@ -24,13 +24,12 @@ class SinglelegrobotEnv(DirectRLEnv):
     def __init__(self, cfg: SinglelegrobotEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self._cart_dof_idx, dof_names = self.robot.find_joints(self.cfg.dof_name)
+        self.dof_idx, dof_names = self.robot.find_joints(self.cfg.dof_names)
         #self._pole_dof_idx, _ = self.robot.find_joints(self.cfg.pole_dof_name)
         print(f"[INFO] Leg joints controlled by the policy: {dof_names}")
         print(f"[INFO] Leg Links controlled by the policy {self.robot.body_names}")
 
-        self.joint_pos = self.robot.data.joint_pos
-        self.joint_vel = self.robot.data.joint_vel
+        
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot_cfg)
@@ -53,7 +52,7 @@ class SinglelegrobotEnv(DirectRLEnv):
     def _apply_action(self) -> None:
         default_pos = self.robot.data.default_joint_pos[:, self.dof_idx] 
         targets = default_pos + self.cfg.action_scale * self.actions
-        self.robot.set_joint_position_targets(targets, joint_ids = self.dof_idx)
+        self.robot.set_joint_position_target(targets, joint_ids = self.dof_idx)
 
     def _get_observations(self) -> dict:
         joint_pos = self.robot.data.joint_pos[:, self.dof_idx] - self.robot.data.default_joint_pos[:, self.dof_idx]
