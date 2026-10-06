@@ -8,7 +8,7 @@ URDF_PATH = os.path.join(os.path.dirname(__file__), "data", "URDFSingleLegModel.
 MOUNT_HEIGHT = 0.8 # height of the leg top link above ground [m]
 DEFAULT_JOINT_POSITIONS = {".*": 0.0}# default joint positions for the leg [rad]
 
-STIFFNESS = 25.0  # PD Positions gain [N*m/rad]
+STIFFNESS = 0.0  # PD Positions gain [N*m/rad]
 DAMPING = 0.5  # PD Velocities gain [N*m*s/rad]
 EFFORT_LIMIT = 23.5 # motor torue limit [Nm]
 VELOCITY_LIMIT = 10.0 # motor velocity limit [rad/s]
