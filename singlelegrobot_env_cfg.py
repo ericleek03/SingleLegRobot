@@ -41,18 +41,22 @@ class SinglelegrobotEnvCfg(DirectRLEnvCfg):
     #foot contact sensor
     contact_sensor: ContactSensorCfg = ContactSensorCfg(prim_path = "/World/envs/env_.*/Robot/.*", update_period =0.0, history_length=3, track_air_time =True)
 
-    foot_body = "knee_link"
-    target_height_range = (0.05, 0.15) # commanded target height
-    contact_threshold = 0.01 # [m] distance threshold to consider the foot in contact with the ground
-    collapse_height = -0.36 # carriage below
+       # ---- hop task ----
+    foot_body = "knee_link"                     # the link that touches the ground
+    target_height_range = (0.05, 0.15)          # commanded hop height, liftoff to apex [m]
+    contact_threshold = 1.0                     # foot force above this [N] = on the ground
+    collapse_height = -0.36                     # carriage below this = collapsed
+    hop_frequency = 2.0                         # hops per second the rhythm asks for
+    stance_fraction = 0.5                       # share of each cycle with the foot on the ground
 
-    # Reward weights
-    rew_apx = 10.0 # weight for apex height reward
-    apex_sigma = 0.03
-    rew_air_time = 2.0
-    rew_action_rate = -0.005
-    rew_torque = -1.0e-5
-    rew_collapse = -5.0
+    # ---- reward weights ----
+    rew_apex = 10.0                             # per hop, scaled by how close it was to the target
+    apex_sigma = 0.03                           # [m] a hop 3 cm off the target scores ~37 %
+    rew_gait = 3.0                              # per second: foot on ground / in air on the rhythm
+    rew_lift = 2.0                              # reward moving the carriage upward
+    rew_action_rate = -0.005                    # smooth commands
+    rew_torque = -1.0e-5                        # low motor effort
+    rew_collapse = -5.0                         # once, when the leg collapses
     hop_frequency = 2.0 # [Hz] desired hopping frequency for reward shaping
     stance_fraction = 0.5 # desired stance fraction for reward shaping
     rew_gait = 3.0
