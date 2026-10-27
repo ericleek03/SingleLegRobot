@@ -46,7 +46,8 @@ class SinglelegrobotEnv(DirectRLEnv):
         self._episode_sums = {k: torch.zeros(n, device=self.device)
                               for k in ("apex", "gait", "lift", "action_rate", "torque", "collapse","foot_slip", "foot_under_hip","joint_acc")}
         self._hops = torch.zeros(n, device=self.device)
-
+        self.peak_height = torch.zeros(n,device=self.device) # highest point of the current hop ( torch.zeros creates a new tensor every time, so we can't use last_rise for this)
+        self.air_steps = torch.zeros(n, device=self.device) # number of steps while the foot is in the air
         print(f"[INFO] Leg joints controlled by the policy: {dof_names}")
         print(f"[INFO] Links: {self.robot.body_names}")
         print(f"[INFO] Foot contact measured on: {self.cfg.foot_body}")
@@ -122,7 +123,7 @@ class SinglelegrobotEnv(DirectRLEnv):
                 torch.sin(2 * torch.pi * self.phase).unsqueeze(-1),     # where we are in the hop rhythm
                 torch.cos(2 * torch.pi * self.phase).unsqueeze(-1),
                 self.foot_contact().float().unsqueeze(-1),              # foot on the ground (1) / in the air (0)
-                
+                self.peak_height.unsqueeze(-1),                         # highest point of the current hop
             ),
             dim=-1,
         )
@@ -131,18 +132,25 @@ class SinglelegrobotEnv(DirectRLEnv):
     # ---------------------------------------------------------------- hop measurement
     def _update_hops(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns (apex, rise): apex = True where a hop peaked this step, rise = that hop's height [m]."""
-        z, vz, contact = self.slider_z(), self.slider_vz(), self.foot_contact()
-        self.liftoff_z = torch.where(contact, z, self.liftoff_z)   # keeps updating while the foot is down
-        self.in_air = contact.logical_not()
-        apex = self.in_air & (self.prev_vz > 0.0) & (vz <= 0.0)   # was rising, now falling = top of the hop
-        rise = torch.where(apex, z - self.liftoff_z, torch.zeros_like(z))
-        self.last_rise = torch.where(apex, rise, self.last_rise)
-        self.prev_vz = vz.clone()
-        return apex, rise
+        z, contact = self.slider_z(), self.foot_contact()
+        airborne = contact.logical_not()
+        took_off = airborne & self.in_air.logical_not()  # was on the ground, now in the air
+        landed = contact & self.in_air                      # was in the air, now on the ground
+        self.peak_height = torch.where(took_off, z, self.peak_height)  # reset the peak height at liftoff
+        self.air_steps = torch.where(airborne, self.air_steps +1 , self.air_steps) # count the number of steps in the air
+        long_enough = self.air_steps * self.step_dt > self.cfg.min_air_time # only count a hop if the foot was in the air for at least this long
+        hop = landed & long_enough
+        rise = torch.where(hop, self.peak_height - self.liftoff_z, torch.zeros_like(z))
+        self.last_rise = torch.where(hop, rise, self.last_rise)
+        # update the hop state for the next step
+        self.air_steps = torch.where(contact, torch.zeros_like(self.air_steps), self.air_steps)
+        self.liftoff_z = torch.where(contact, z, self.liftoff_z)
+        self.in_air = airborne
+        return hop, rise
 
     # ---------------------------------------------------------------- rewards
     def _get_rewards(self) -> torch.Tensor:
-        apex, rise = self._update_hops()
+        hop, rise = self._update_hops()
 
         # 1) reach the target height: paid once per hop, at its top
         err = rise - self.target_height
@@ -153,14 +161,14 @@ class SinglelegrobotEnv(DirectRLEnv):
         period = self.cfg.stance_time + flight_time
         self.phase = (self.phase + self.step_dt * self.cfg.hop_frequency) % 1.0
         want_air = self.phase >= self.cfg.stance_fraction
-        gait_match = (self.in_air == want_air).float()
-        sole_pos, sole_vel = self.sole_state()
-        contact = self.foot_contact().float()
+        gait_match = (self.in_air == want_air).float() # 1.0 if the foot is in the right state (on ground / in air) for this part of the hop cycle, else 0.0
+        sole_pos, sole_vel = self.sole_state() # sole_pos = world position of the bottom of the foot, sole_vel = world velocity of the bottom of the foot
+        contact = self.foot_contact().float() # contact detection is noisy, so we use the smoothed version for the gait reward
         slip = torch.norm(sole_vel[:, :2], dim=-1) * contact                    # sideways speed on the ground
         hip_x = self.robot.data.body_link_pos_w[:, self.hip_body_idx, 0]
         off_x = sole_pos[:, 0] - hip_x  
         rewards = {
-            "apex": apex.float() * hop_score * self.cfg.rew_apex,
+            "apex": hop.float() * hop_score * self.cfg.rew_apex,
             "gait": gait_match * self.cfg.rew_gait * self.step_dt,
             "lift": torch.clamp(self.slider_vz(), min=0.0) * self.cfg.rew_lift * self.step_dt,
             "action_rate": torch.sum(torch.square(self.actions - self.prev_actions), dim=1)
@@ -175,14 +183,14 @@ class SinglelegrobotEnv(DirectRLEnv):
         }
         for k, v in rewards.items():
             self._episode_sums[k] += v
-        self._hops += apex.float()
+        self._hops += hop.float()
 
         # status line every 250 steps (5 s): is contact detected, is it hopping?
         self._debug_steps += 1
         if self._debug_steps % 250 == 0:
             print(f"[STATUS] foot on ground {self.foot_contact().float().mean().item() * 100:.0f}% | "
                   f"rhythm match {gait_match.mean().item() * 100:.0f}% | "
-                  f"carriage z {self.slider_z().mean().item():+.3f} m | hops this step {int(apex.sum().item())}")
+                  f"carriage z {self.slider_z().mean().item():+.3f} m | hops this step {int(hop.sum().item())}")
 
         return torch.sum(torch.stack(list(rewards.values())), dim=0)
 
@@ -219,7 +227,9 @@ class SinglelegrobotEnv(DirectRLEnv):
         self.last_rise[env_ids] = 0.0
         self.phase[env_ids] = 0.0
         self.actions[env_ids] = 0.0
-        self.prev_actions[env_ids] = 0.0
+        self.prev_actions[env_ids] = 0.0 # reset the previous actions to zero for each reset robot
+        self.peak_height[env_ids] = 0.0 # reset the highest point of the current hop for each reset robot
+        self.air_steps[env_ids] = 0.0 # reset the number of steps in the air for each reset robot
 
         # put the robot back at the start
         default_root_state = self.robot.data.default_root_state[env_ids]
