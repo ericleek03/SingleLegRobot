@@ -15,7 +15,7 @@ from isaaclab.sensors import ContactSensor
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 
 from .singlelegrobot_env_cfg import SinglelegrobotEnvCfg
-
+from isaaclab.utils.math import quat_apply
 
 class SinglelegrobotEnv(DirectRLEnv):
     cfg: SinglelegrobotEnvCfg
@@ -28,7 +28,9 @@ class SinglelegrobotEnv(DirectRLEnv):
         self.slider_idx = self.robot.find_joints(["pz_.*"])[0][0]
         # the foot link, for the contact sensor
         self.foot_id = self._contact.find_bodies(self.cfg.foot_body)[0][0]
-
+        self.foot_body_idx = self.robot.find_bodies(self.cfg.foot_body)[0][0]
+        self.hip_body_idx = self.robot.find_bodies("hip_link")[0][0]
+        self.sole_offset = torch.tensor(self.cfg.sole_offset, device=self.device).repeat(self.num_envs, 1)
         n = self.num_envs
         self.actions = torch.zeros(n, len(self.dof_idx), device=self.device)
         self.prev_actions = torch.zeros_like(self.actions)
@@ -42,7 +44,7 @@ class SinglelegrobotEnv(DirectRLEnv):
         self._debug_steps = 0
         # per-episode reward sums -> TensorBoard "Episode_Reward/<name>"
         self._episode_sums = {k: torch.zeros(n, device=self.device)
-                              for k in ("apex", "gait", "lift", "action_rate", "torque", "collapse")}
+                              for k in ("apex", "gait", "lift", "action_rate", "torque", "collapse","foot_slip", "foot_under_hip","joint_acc")}
         self._hops = torch.zeros(n, device=self.device)
 
         print(f"[INFO] Leg joints controlled by the policy: {dof_names}")
@@ -53,7 +55,11 @@ class SinglelegrobotEnv(DirectRLEnv):
         self.robot = Articulation(self.cfg.robot_cfg)
         self._contact = ContactSensor(self.cfg.contact_sensor)
         # add ground plane
-        spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
+        spawn_ground_plane(
+            prim_path="/World/ground",
+            cfg=GroundPlaneCfg(physics_material=sim_utils.RigidBodyMaterialCfg(
+                static_friction=1.0, dynamic_friction=1.0, friction_combine_mode="max", restitution=0.0, restitution_combine_mode="min")),
+        )
         # clone and replicate
         self.scene.clone_environments(copy_from_source=False)
         # we need to explicitly filter collisions for CPU simulation
@@ -79,6 +85,18 @@ class SinglelegrobotEnv(DirectRLEnv):
         """True where the foot is pressing on the ground."""
         force = self._contact.data.net_forces_w[:, self.foot_id].norm(dim=-1)
         return force > self.cfg.contact_threshold
+    
+    def sole_state(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """World position and velocity of the bottom of the foot."""
+        d = self.robot.data
+        q = d.body_link_quat_w[:, self.foot_body_idx]
+        r = quat_apply(q, self.sole_offset)     
+        down = torch.zeros_like(r)
+        down[:, 2] = -self.cfg.foot_radius                          # frame origin -> sole
+        pos = d.body_link_pos_w[:, self.foot_body_idx] + r
+        vel = d.body_link_lin_vel_w[:, self.foot_body_idx] + torch.cross(
+            d.body_link_ang_vel_w[:, self.foot_body_idx], r, dim=-1)
+        return pos, vel
 
     # ---------------------------------------------------------------- actions
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
@@ -104,6 +122,7 @@ class SinglelegrobotEnv(DirectRLEnv):
                 torch.sin(2 * torch.pi * self.phase).unsqueeze(-1),     # where we are in the hop rhythm
                 torch.cos(2 * torch.pi * self.phase).unsqueeze(-1),
                 self.foot_contact().float().unsqueeze(-1),              # foot on the ground (1) / in the air (0)
+                
             ),
             dim=-1,
         )
@@ -130,10 +149,16 @@ class SinglelegrobotEnv(DirectRLEnv):
         hop_score = torch.exp(-torch.square(err) / self.cfg.apex_sigma**2)
 
         # 2) hop rhythm: foot on the ground for the first part of each cycle, in the air for the rest
+        flight_time = 2.0 * torch.sqrt(2.0 * self.target_height / 9.81)
+        period = self.cfg.stance_time + flight_time
         self.phase = (self.phase + self.step_dt * self.cfg.hop_frequency) % 1.0
         want_air = self.phase >= self.cfg.stance_fraction
         gait_match = (self.in_air == want_air).float()
-
+        sole_pos, sole_vel = self.sole_state()
+        contact = self.foot_contact().float()
+        slip = torch.norm(sole_vel[:, :2], dim=-1) * contact                    # sideways speed on the ground
+        hip_x = self.robot.data.body_link_pos_w[:, self.hip_body_idx, 0]
+        off_x = sole_pos[:, 0] - hip_x  
         rewards = {
             "apex": apex.float() * hop_score * self.cfg.rew_apex,
             "gait": gait_match * self.cfg.rew_gait * self.step_dt,
@@ -143,6 +168,10 @@ class SinglelegrobotEnv(DirectRLEnv):
             "torque": torch.sum(torch.square(self.robot.data.applied_torque[:, self.dof_idx]), dim=1)
             * self.cfg.rew_torque * self.step_dt,
             "collapse": self.reset_terminated.float() * self.cfg.rew_collapse,
+            "foot_slip": slip * self.cfg.rew_foot_slip * self.step_dt,
+            "foot_under_hip": (off_x < 0).float() * self.cfg.rew_foot_under_hip * self.step_dt,
+            "joint_acc": torch.sum(torch.square(self.robot.data.joint_acc[:, self.dof_idx]), dim=1) 
+            * self.cfg.rew_joint_acc * self.step_dt,    
         }
         for k, v in rewards.items():
             self._episode_sums[k] += v

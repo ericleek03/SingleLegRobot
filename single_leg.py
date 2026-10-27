@@ -6,13 +6,13 @@ import xml.etree.ElementTree as ET
 
 URDF_PATH = os.path.join(os.path.dirname(__file__), "data", "2DOFSinglelegmodel.urdf")
 MOUNT_HEIGHT = 0.0 # height of the leg top link above ground [m]
-DEFAULT_JOINT_POSITIONS = {"hip_joint": -0.6, "knee_joint": 1.2}# default joint positions for the leg [rad]
+DEFAULT_JOINT_POSITIONS = {"hip_joint": 0.9, "knee_joint": 1.4}# default joint positions for the leg [rad]
 
-STIFFNESS = 30.0  # PD Positions gain [N*m/rad]
-DAMPING = 0.5  # PD Velocities gain [N*m*s/rad]
-EFFORT_LIMIT = 23.5 # motor torue limit [Nm]
-VELOCITY_LIMIT = 10.0 # motor velocity limit [rad/s]
-
+STIFFNESS = 30.9 #PD Positions gain [N*m/rad]
+DAMPING = 3.5 #  PD Velocities gain [N*m*s/rad]
+EFFORT_LIMIT = 18.25 # motor torue limit [Nm]
+VELOCITY_LIMIT = 363*(2*3.14159/60) # motor velocity limit [rad/s]
+ARMATURE = 0.01
 
 def count_moving_joints(urdf_path: str) -> int:
     """
@@ -29,28 +29,30 @@ def count_moving_joints(urdf_path: str) -> int:
 NUM_MOVING_JOINTS = count_moving_joints(URDF_PATH)
 
 SINGLE_LEG_CONFIG = ArticulationCfg(
-    spawn=sim_utils.UrdfFileCfg(asset_path=URDF_PATH, fix_base=True,
-    merge_fixed_joints=False,
-    activate_contact_sensors=True,
-    joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
-        gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(
-            stiffness=STIFFNESS, damping=DAMPING)
+    spawn=sim_utils.UrdfFileCfg(
+        asset_path=URDF_PATH,
+        fix_base=True,
+        merge_fixed_joints=False,
+        activate_contact_sensors=True,
+        joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
+            gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=STIFFNESS, damping=DAMPING)
         ),
-    
-    articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-        enabled_self_collisions=False,
-        solver_position_iteration_count=4,
-        solver_velocity_iteration_count=0,
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(max_depenetration_velocity=1.0),
+        collision_props=sim_utils.CollisionPropertiesCfg(contact_offset=0.005, rest_offset=0.0),
+        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+            enabled_self_collisions=False, solver_position_iteration_count=8, solver_velocity_iteration_count=1
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, MOUNT_HEIGHT), joint_pos=DEFAULT_JOINT_POSITIONS,),
-
+        pos=(0.0, 0.0, MOUNT_HEIGHT),
+        joint_pos=DEFAULT_JOINT_POSITIONS,
+    ),
     actuators={
         "leg_motors": ImplicitActuatorCfg(
             joint_names_expr=["(?!pz_).*"],       # every joint EXCEPT ones starting with pz_
             stiffness=STIFFNESS,
             damping=DAMPING,
+            armature=ARMATURE,
             effort_limit_sim=EFFORT_LIMIT,
             velocity_limit_sim=VELOCITY_LIMIT,
         ),

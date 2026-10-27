@@ -3,238 +3,292 @@
      Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
-name="2DOFSinglelegmodel">
-<!-- ===== Vertical slider + upright mount =====
-     slider_base (bolted to the ground by fix_base=True)
-       └─ pz_z  (prismatic, vertical, no motor)   the leg can only move up and down
-           └─ mount_link  (the slider carriage)
-               └─ mount_joint (fixed, your rotation)  stands the SolidWorks leg upright
-                   └─ base_link -> hip_joint -> knee_joint  (your leg, unchanged) -->
-<link
-name="slider_base">
-<inertial>
-<origin
-xyz="0 0 0"
-rpy="0 0 0" />
-<mass
-value="1.0" />
-<inertia
-ixx="0.001"
-ixy="0"
-ixz="0"
-iyy="0.001"
-iyz="0"
-izz="0.001" />
-</inertial>
-</link>
-<joint
-name="pz_z"
-type="prismatic">
-<!-- z = start height of the carriage above the ground [m] (when pz_z = 0).
-     In the starting pose the foot is ~0.25 m below the carriage, so it starts ~0.2 m up and drops. -->
-<origin
-xyz="0 0 0.35"
-rpy="0 0 0" />
-<parent
-link="slider_base" />
-<child
-link="mount_link" />
-<axis
-xyz="0 0 1" />
-<!-- travel from the start height: 0.4 m down, 0.3 m up [m] -->
-<limit
-lower="-0.4"
-upper="0.3"
-effort="1000"
-velocity="20" />
-<dynamics
-damping="0.01"
-friction="0" />
-</joint>
-<link
-name="mount_link">
-<inertial>
-<origin
-xyz="0 0 0"
-rpy="0 0 0" />
-<!-- carriage mass [kg]: what slides up and down with the leg, besides the leg itself -->
-<mass
-value="0.3" />
-<inertia
-ixx="0.0002"
-ixy="0"
-ixz="0"
-iyy="0.0002"
-iyz="0"
-izz="0.0002" />
-</inertial>
-</link>
-<joint
-name="mount_joint"
-type="fixed">
-<origin
-xyz="0 0 0"
-rpy="3.14159265 -1.5708 0" />
-<parent
-link="mount_link" />
-<child
-link="base_link" />
-</joint>
-<!-- ===== end of slider + mount ===== -->
-<link
-name="base_link">
-<inertial>
-<origin
-xyz="1.10401405661875E-06 -0.0217945095493369 0.0585459054905575"
-rpy="0 0 0" />
-<mass
-value="1.05333227806636" />
-<inertia
-ixx="0.000663950610134572"
-ixy="9.42170825678126E-10"
-ixz="2.33280442142637E-08"
-iyy="0.00114524349000934"
-iyz="-7.88002117874236E-06"
-izz="0.000691045220028636" />
-</inertial>
-<visual>
-<origin
-xyz="0 0 0"
-rpy="0 0 0" />
-<geometry>
-<mesh
-filename="meshes/hip_link.STL" />
-</geometry>
-<material
-name="">
-<color
-rgba="0.894117647058823 0.894117647058823 0.894117647058823 1" />
-</material>
-</visual>
-<collision>
-<origin
-xyz="0 0 0"
-rpy="0 0 0" />
-<geometry>
-<mesh
-filename="meshes/hip_link.STL" />
-</geometry>
-</collision>
-</link>
-<link
-name="hip_link">
-<inertial>
-<origin
-xyz="0.00445188666574214 4.50735963734017E-05 0.0405591639309444"
-rpy="0 0 0" />
-<mass
-value="0.39155274915433" />
-<inertia
-ixx="0.00093833099953158"
-ixy="-9.15823000384108E-08"
-ixz="-8.0971509216704E-05"
-iyy="0.00108427222094375"
-iyz="-1.1099548035353E-05"
-izz="0.000167872241806843" />
-</inertial>
-<visual>
-<origin
-xyz="0 0 0"
-rpy="0 0 0" />
-<geometry>
-<mesh
-filename="meshes/thigh_link.STL" />
-</geometry>
-<material
-name="">
-<color
-rgba="0.894117647058823 0.894117647058823 0.894117647058823 1" />
-</material>
-</visual>
-<collision>
-<origin
-xyz="0 0 0"
-rpy="0 0 0" />
-<geometry>
-<mesh
-filename="meshes/thigh_link.STL" />
-</geometry>
-</collision>
-</link>
-<joint
-name="hip_joint"
-type="revolute">
-<origin
-xyz="0 -0.078825 0.060569"
-rpy="0 -0.066975 0" />
-<parent
-link="base_link" />
-<child
-link="hip_link" />
-<axis
-xyz="0 1 0" />
-<limit
-lower="-1.5708"
-upper="0"
-effort="0"
-velocity="0" />
-</joint>
-<link
-name="knee_link">
-<inertial>
-<origin
-xyz="-0.0495672370509739 -0.105445476658468 0.00146379134388291"
-rpy="0 0 0" />
-<mass
-value="0.333644599607618" />
-<inertia
-ixx="0.000268785106855085"
-ixy="-9.06335159980823E-05"
-ixz="-1.05216440459816E-07"
-iyy="0.000126602425604822"
-iyz="-1.40092538928202E-07"
-izz="0.000322508934052521" />
-</inertial>
-<visual>
-<origin
-xyz="0 0 0"
-rpy="0 0 0" />
-<geometry>
-<mesh
-filename="meshes/knee_link.STL" />
-</geometry>
-<material
-name="">
-<color
-rgba="0.894117647058823 0.894117647058823 0.894117647058823 1" />
-</material>
-</visual>
-<collision>
-<origin
-xyz="0 0 0"
-rpy="0 0 0" />
-<geometry>
-<mesh
-filename="meshes/knee_link.STL" />
-</geometry>
-</collision>
-</link>
-<joint
-name="knee_joint"
-type="revolute">
-<origin
-xyz="0.010925 -0.003674 0.14564"
-rpy="-1.5708 0 0" />
-<parent
-link="hip_link" />
-<child
-link="knee_link" />
-<axis
-xyz="0 0 -1" />
-<limit
-lower="0"
-upper="2.0"
-effort="0"
-velocity="0" />
-</joint>
+  name="Final2DOFLeg">
+  <!-- ===== Vertical slider + upright mount (added for Isaac Lab) =====
+       slider_base (bolted to the ground by fix_base=True)
+         └─ pz_z  (prismatic, vertical, no motor)        the leg can only move up and down
+             └─ mount_link  (slider carriage)
+                 └─ mount_joint (fixed, 180 deg about X)  the SolidWorks export points the leg UP; this flips it down
+                     └─ base_link -> hip_joint -> hip_link -> knee_joint -> knee_link -> foot_joint -> foot_link
+       Standing pose hip 0.9 / knee 1.4: foot is 0.31 m below the carriage, right under the hip. -->
+  <link
+    name="slider_base">
+    <inertial>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <mass
+        value="1.0" />
+      <inertia
+        ixx="0.001"
+        ixy="0"
+        ixz="0"
+        iyy="0.001"
+        iyz="0"
+        izz="0.001" />
+    </inertial>
+  </link>
+  <joint
+    name="pz_z"
+    type="prismatic">
+    <!-- start height of the carriage [m]: standing needs 0.31, so the foot starts ~5 cm up and drops -->
+    <origin
+      xyz="0 0 0.36"
+      rpy="0 0 0" />
+    <parent
+      link="slider_base" />
+    <child
+      link="mount_link" />
+    <axis
+      xyz="0 0 1" />
+    <!-- travel from the start height [m]: down 0.30 (deep crouch), up 0.30 (hops) -->
+    <limit
+      lower="-0.40"
+      upper="0.40"
+      effort="1000"
+      velocity="20" />
+    <dynamics
+      damping="0.01"
+      friction="0" />
+  </joint>
+  <link
+    name="mount_link">
+    <inertial>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <!-- carriage mass [kg]: what slides with the leg, besides the leg itself -->
+      <mass
+        value="0.3" />
+      <inertia
+        ixx="0.0002"
+        ixy="0"
+        ixz="0"
+        iyy="0.0002"
+        iyz="0"
+        izz="0.0002" />
+    </inertial>
+  </link>
+  <joint
+    name="mount_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 0"
+      rpy="3.14159265 0 0" />
+    <parent
+      link="mount_link" />
+    <child
+      link="base_link" />
+  </joint>
+  <!-- ===== end of slider + mount ===== -->
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.00209272945441707 -0.0277965428996201 0.0925222486082806"
+        rpy="0 0 0" />
+      <mass
+        value="1.05333227963718" />
+      <inertia
+        ixx="0.000663950610918829"
+        ixy="9.4219855577499E-10"
+        ixz="2.33277489506231E-08"
+        iyy="0.0011452434919686"
+        iyz="-7.88002131246359E-06"
+        izz="0.000691045221300687" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.894117647058823 0.894117647058823 0.894117647058823 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="hip_link">
+    <inertial>
+      <origin
+        xyz="0.0270911304848116 0.00172750200180527 0.0407661723793313"
+        rpy="0 0 0" />
+      <mass
+        value="0.39155274915433" />
+      <inertia
+        ixx="0.00108427222094374"
+        ixy="-6.51455258055474E-07"
+        ixz="1.10807923883418E-05"
+        iyy="0.000945693860573861"
+        iyz="-2.87991807203583E-05"
+        izz="0.00016050938076455" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/hip_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.894117647058823 0.894117647058823 0.894117647058823 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/hip_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="hip_joint"
+    type="revolute">
+    <origin
+      xyz="-0.0020938 -0.057691 0.094545"
+      rpy="0 0 -1.5708" />
+    <parent
+      link="base_link" />
+    <child
+      link="hip_link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-1" 
+      upper="1.5708"
+      effort="18.25"
+      velocity="38.01327" />
+  </joint>
+  <dynamics
+      damping="0.05"
+      friction="0.15" />
+  <link
+    name="knee_link">
+    <inertial>
+      <origin
+        xyz="-0.0257284730177028 -0.0613468633471308 0.00143940427590555"
+        rpy="0 0 0" />
+      <mass
+        value="0.135373733148076" />
+      <inertia
+        ixx="0.000203249864498884"
+        ixy="-7.5071031665616E-05"
+        ixz="-6.39888261406597E-08"
+        iyy="4.29625416149345E-05"
+        iyz="-1.52540265163357E-07"
+        izz="0.00023823169107691" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/knee_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.894117647058823 0.894117647058823 0.894117647058823 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/knee_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="knee_joint"
+    type="revolute">
+    <origin
+      xyz="0.03081 0.0011539 0.14605"
+      rpy="-1.5708 -0.066975 1.5708" />
+    <parent
+      link="hip_link" />
+    <child
+      link="knee_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="0.5"
+      upper="2.70"
+      effort="18.25"
+      velocity="38.01327" />
+      <dynamics
+      damping="0.05"
+      friction="0.15" />
+  </joint>
+  <link
+    name="foot_link">
+    <inertial>
+      <origin
+        xyz="0.00338758384704163 -0.0809553137341198 0.365094789939327"
+        rpy="0 0 0" />
+      <mass
+        value="0.198271075333205" />
+      <inertia
+        ixx="8.00200005467144E-05"
+        ixy="-2.80624834469874E-08"
+        ixz="-2.55491577657738E-06"
+        iyy="8.42770712083732E-05"
+        iyz="6.43190853132161E-09"
+        izz="6.91553299557649E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/foot_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.894117647058823 0.894117647058823 0.894117647058823 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.0060 -0.0810 0.3686" rpy="0 0 0" />
+      <geometry>     
+        <sphere radius="0.025" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="foot_joint"
+    type="fixed">
+    <origin
+      xyz="0.075476 0.2007 0.082436"
+      rpy="1.5708 0 -0.3597" />
+    <parent
+      link="knee_link" />
+    <child
+      link="foot_link" />
+  </joint>
 </robot>

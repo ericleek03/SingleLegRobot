@@ -11,7 +11,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 @configclass
 class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 1000
+    max_iterations = 500
     save_interval = 50
     experiment_name = "single_leg_direct"
     policy = RslRlPpoActorCriticCfg(
@@ -21,6 +21,7 @@ class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
         actor_hidden_dims=[128, 128],
         critic_hidden_dims=[128, 128],
         activation="elu",
+
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,

@@ -20,7 +20,7 @@ class SinglelegrobotEnvCfg(DirectRLEnvCfg):
     episode_length_s = 10.0
     # - spaces definition
     action_space = NUM_MOVING_JOINTS
-    observation_space = 2*NUM_MOVING_JOINTS + 6  # joint positions, joint velocities, base position
+    observation_space = 3*NUM_MOVING_JOINTS + 6  # joint positions, joint velocities, base position
     state_space = 0
 
     # simulation
@@ -42,24 +42,27 @@ class SinglelegrobotEnvCfg(DirectRLEnvCfg):
     contact_sensor: ContactSensorCfg = ContactSensorCfg(prim_path = "/World/envs/env_.*/Robot/.*", update_period =0.0, history_length=3, track_air_time =True)
 
        # ---- hop task ----
-    foot_body = "knee_link"                     # the link that touches the ground
+    foot_body = "foot_link"                     # the link that touches the ground
     target_height_range = (0.05, 0.15)          # commanded hop height, liftoff to apex [m]
     contact_threshold = 1.0                     # foot force above this [N] = on the ground
-    collapse_height = -0.36                     # carriage below this = collapsed
+    collapse_height = -0.20                    # carriage below this = collapsed
     hop_frequency = 2.0                         # hops per second the rhythm asks for
-    stance_fraction = 0.5                       # share of each cycle with the foot on the ground
-
+    stance_time = 0.5                       # share of each cycle with the foot on the ground
+    sole_offset = (0.0060, -0.0810, 0.3686)
+    foot_radius = 0.025
     # ---- reward weights ----
     rew_apex = 10.0                             # per hop, scaled by how close it was to the target
     apex_sigma = 0.03                           # [m] a hop 3 cm off the target scores ~37 %
-    rew_gait = 3.0                              # per second: foot on ground / in air on the rhythm
-    rew_lift = 2.0                              # reward moving the carriage upward
-    rew_action_rate = -0.005                    # smooth commands
+    rew_gait = 2.0                              # per second: foot on ground / in air on the rhythm
+    rew_lift = 0.0                              # reward moving the carriage upward
+    rew_action_rate = -0.02                   # smooth commands
     rew_torque = -1.0e-5                        # low motor effort
     rew_collapse = -5.0                         # once, when the leg collapses
     hop_frequency = 2.0 # [Hz] desired hopping frequency for reward shaping
-    stance_fraction = 0.5 # desired stance fraction for reward shaping
-    rew_gait = 3.0
+    stance_fraction = 0.5 # desired stance time for reward shaping
+    rew_foot_slip = -20.0
+    rew_foot_under_hip = -300.0
+    rew_joint_acc = -5.0e-7   # penalises fast jerks of joints
     # - reward scales
     rew_scale_alive = 1.0
     rew_scale_terminated = -2.0
