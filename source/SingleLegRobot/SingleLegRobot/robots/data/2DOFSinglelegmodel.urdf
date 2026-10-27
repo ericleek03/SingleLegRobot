@@ -43,8 +43,8 @@
       xyz="0 0 1" />
     <!-- travel from the start height [m]: down 0.30 (deep crouch), up 0.30 (hops) -->
     <limit
-      lower="-0.30"
-      upper="0.30"
+      lower="-0.40"
+      upper="0.40"
       effort="1000"
       velocity="20" />
     <dynamics
@@ -174,11 +174,14 @@
     <axis
       xyz="-1 0 0" />
     <limit
-      lower="0"
+      lower="-1" 
       upper="1.5708"
-      effort="0"
-      velocity="0" />
+      effort="18.25"
+      velocity="38.01327" />
   </joint>
+  <dynamics
+      damping="0.05"
+      friction="0.15" />
   <link
     name="knee_link">
     <inertial>
@@ -232,10 +235,13 @@
     <axis
       xyz="0 0 -1" />
     <limit
-      lower="0.5235"
-      upper="2.2689"
-      effort="0"
-      velocity="0" />
+      lower="0.5"
+      upper="2.70"
+      effort="18.25"
+      velocity="38.01327" />
+      <dynamics
+      damping="0.05"
+      friction="0.15" />
   </joint>
   <link
     name="foot_link">
