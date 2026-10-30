@@ -48,6 +48,7 @@ class SinglelegrobotEnv(DirectRLEnv):
         self._hops = torch.zeros(n, device=self.device)
         self.peak_height = torch.zeros(n,device=self.device) # highest point of the current hop ( torch.zeros creates a new tensor every time, so we can't use last_rise for this)
         self.air_steps = torch.zeros(n, device=self.device) # number of steps while the foot is in the air
+        self.min_air_time = torch.zeros(n, device = self.device)
         print(f"[INFO] Leg joints controlled by the policy: {dof_names}")
         print(f"[INFO] Links: {self.robot.body_names}")
         print(f"[INFO] Foot contact measured on: {self.cfg.foot_body}")

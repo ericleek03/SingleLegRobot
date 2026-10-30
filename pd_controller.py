@@ -85,9 +85,9 @@ def summary(name, t, angles, torques, target):
 
 
 if __name__ == "__main__":
-    kp = 30.0
-    kd = 1.7
-    target_angle = 0.3
+    kp = 40.0
+    kd = 2.75
+    target_angle = 0.3 # radians
     hip_inertia = 0.0219
     summary_name = "Hip Joint"
     t, angles, torques = run(kp, kd, inertia=hip_inertia, target=target_angle)
