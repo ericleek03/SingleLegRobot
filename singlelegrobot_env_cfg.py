@@ -6,13 +6,15 @@
 from isaaclab.sim import PhysxCfg, SimulationCfg
 from SingleLegRobot.robots.single_leg import NUM_MOVING_JOINTS, SINGLE_LEG_CONFIG
 from isaaclab.assets import ArticulationCfg
-from isaaclab.envs import DirectRLEnvCfg
+from isaaclab.envs import DirectRLEnvCfg, mdp
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 from isaaclab.sensors import ContactSensorCfg
-from isaaclab.envs import mdp 
 from isaaclab.managers import EventTermCfg as EventTerm, SceneEntityCfg
+
+LEG_MASS = 1.78 # [kg] mass of the leg (without the slider)
+
 @configclass
 class EventCfg:
     armature = EventTerm(
@@ -25,7 +27,7 @@ class EventCfg:
 @configclass
 class SinglelegrobotEnvCfg(DirectRLEnvCfg):
     # env
-    decimation = 4
+    decimation = 4 # number of simulation steps per environment step
     episode_length_s = 10.0
     # - spaces definition
     action_space = NUM_MOVING_JOINTS
@@ -41,47 +43,58 @@ class SinglelegrobotEnvCfg(DirectRLEnvCfg):
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=512, env_spacing=2.0, replicate_physics=True)
 
-    # custom parameters/scales
-    # - controllable joint
-    dof_names = ["(?!pz_).*"]
-    # - action scale
-    action_scale = 0.75 # [N]
 
     #foot contact sensor
     contact_sensor: ContactSensorCfg = ContactSensorCfg(prim_path = "/World/envs/env_.*/Robot/.*", update_period =0.0, history_length=3, track_air_time =True)
 
-       # ---- hop task ----
-    foot_body = "foot_link"                     # the link that touches the ground
-    target_height_range = (0.05, 0.15)          # commanded hop height, liftoff to apex [m]
-    contact_threshold = 1.0                     # foot force above this [N] = on the ground
-    collapse_height = -0.20                    # carriage below this = collapsed
-    hop_frequency = 2.0                         # hops per second the rhythm asks for
-    stance_time = 0.5                       # share of each cycle with the foot on the ground
-    sole_offset = (0.0060, -0.0810, 0.3686)
-    foot_radius = 0.025
-    # ---- reward weights ----
-    rew_apex = 10.0                             # per hop, scaled by how close it was to the target
-    apex_sigma = 0.03                           # [m] a hop 3 cm off the target scores ~37 %
-    rew_gait = 2.0                              # per second: foot on ground / in air on the rhythm
-    rew_lift = 0.0                              # reward moving the carriage upward
-    rew_action_rate = -0.02                   # smooth commands
-    rew_torque = -1.0e-5                        # low motor effort
-    rew_collapse = -5.0                         # once, when the leg collapses
-    hop_frequency = 2.0 # [Hz] desired hopping frequency for reward shaping
-    stance_fraction = 0.5 # desired stance time for reward shaping
-    rew_foot_slip = -20.0
-    rew_foot_under_hip = -300.0
-    rew_joint_acc = -5.0e-7   # penalises fast jerks of joints
-    # - reward scales
-    rew_scale_alive = 1.0
-    rew_scale_terminated = -2.0
-    rew_scale_pole_pos = -1.0
-    rew_scale_cart_vel = -0.01
-    rew_scale_pole_vel = -0.005
-    # - reset states/conditions
-    initial_pole_angle_range = [-0.25, 0.25]  # pole angle sample range on reset [rad]
-    max_cart_pos = 3.0  # reset if cart exceeds this position [m]
-    min_air_time = 0.1 # seconds
-
     events: EventCfg = EventCfg()
+     # custom parameters/scales
+    # - controllable joint
+    dof_names = ["(?!pz_).*"] # leg joints only
+    action_scale = 0.50 # [rad] joint target=  standing pose + action_scale * action
+    foot_body = "foot_link" # name of the foot link in the URDF
+    sole_offset = (0.0060, -0.0810, 0.3686) # foot sphere centre in foot link frame [m]
+    foot_radius = 0.025 # [m] radius of the foot sphere for contact detection
+    contact_threshold = 1.0 # [N] threshold for foot contact detection
+
+    body_mass = 12.0 # [kg] mass of the body (without the leg)
+    load_share = 0.5 # fraction of the total mass supported by the leg (the rest is supported by the slider)
+    payload_range = (0.8, 1.2) # carriage mass scaling range
+    stand_z = -0.05 # [m] height of the foot above the ground when standing
+    collapse_drop = 0.10 # [m] height of the foot above the ground when the leg is collapsed
+
+    support_mode = "active" # "active" or "passive" support of the body by the leg
+    passive_fraction = 0.5 # fraction of the body mass supported by the leg when support_mode="passive"
+    support_stiffness = 1000.0 # [N/m] spring stiffness for passive support
+    support_damping = 60.0 # [N*s/m] spring damping for passive support
+
+    # commands
+    gait_frquency_range = (1.5, 3.0) # [Hz] range of gait frequencies for the leg
+    swing_height_range = (0.03, 0.07) # [m] range of swing heights for the leg
+    duty_factor = 0.55 # shared fraction of the gait cycle spent in stance phase (0.5 = symmetric gait)
+
+    fwd_speed_range = (0.0, 0.0) # [m/s] for forward speed range use for planar setup
+
+
+    push_vel = 0.0 # [m/s] velocity of the push force applied to the robot
+    push_interval = (1.0, 3.0) # [s] time interval between pushes
+
+    # reward scales
+    rew_height = 5.0 # exp(-(z-stand_z)^2 * rew_height) for foot height above ground
+    height_sigma = 0.02 # [m] sigma for foot height reward
+    rew_gait = 2.0 # foot down/up reward scale
+    rew_clearance = 10 # foot follows a smooth trajectory reward scale
+    clearance_sigma = 0.02 # [m] sigma for foot clearance reward
+    rew_energy = -0.02 # energy penalty scale per J
+    rew_impact = -0.1 # impact penalty scale per N
+    impact_threshold = 10.0 # [N] threshold for impact penalty
+    rew_foot_slip = -20.0 # foot slip penalty scale per m
+    rew_action_rate = -0.01 # action rate penalty scale per (rad/s)^2
+    rew_collapse = -3.0 # penalty for foot height below collapse_drop
+    rew_track_vel = 0.00 #for planar setup, reward for tracking the commanded velocity
+    vel_sigma = 0.25 # [m/s] sigma for velocity tracking reward
+
+    # motor energy model GIM8108
+    joule_coeff = 0.5 # [J/(N*m)^2] Joule heating coefficient for the motors
+    regen = False # True to enable regenerative braking, False to disable it
 
