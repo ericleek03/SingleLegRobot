@@ -12,7 +12,7 @@ import time
 import optuna
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-TASK = "single_leg"
+TASK = "Template-Singlelegrobot-Direct-v0"
 TRAIN = "scripts/rsl_rl/train.py"
 LOG_ROOT = "logs/rsl_rl/single_leg_direct"
 ITERATION = 300
@@ -66,7 +66,7 @@ def objective(trial):
             overrides.append(f"env.{name} = {value}")
 
     run_name = f"optuna_t{trial.number:03d}"
-    cmd = [sys.exceutable, TRAIN, f"--task={TASK}", "--headless", f"--max_iterations={ITERATION}",
+    cmd = [sys.executable, TRAIN, f"--task={TASK}", "--headless", f"--max_iterations={ITERATION}",
            f"--num_envs={NUM_ENVS}", f"--run_name={run_name}"] + overrides
     print(f"\n[trial {trial.number}] {' '.join(overrides)}")
     os.makedirs("logs/optuna", exist_ok=True)
@@ -85,7 +85,7 @@ def objective(trial):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--trials", type = int, default = 30)
-    args = ag.parse_args()
+    args = ap.parse_args()
 
     os.makedirs("logs/optuna/plots", exist_ok=True)
     study = optuna.create_study(study_name="trot_simple", storage="sqlite:///logs/optuna/trot_simple.db",
