@@ -3,10 +3,18 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+"""One leg of a trotting dog. Works on three rigs, detected from the URDF:
+    boom      radial boom: pz_yaw (swing around the post) + pz_pitch (tilt) + pz_level (parallelogram linkage)
+    rails     straight rails: pz_x (horizontal) + pz_z (vertical)
+    vertical  vertical slider: pz_z only (no forward motion)
+Carry its share of the body in stance and push it forward at the commanded speed, swing on time with the foot
+lifted, touch down softly, stay within the motor's limits, use little energy. See the cfg."""
+
 from __future__ import annotations
 
 import math
 import torch
+import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 
 import isaaclab.sim as sim_utils
@@ -19,31 +27,56 @@ from isaaclab.utils.math import quat_apply
 from .singlelegrobot_env_cfg import LEG_MASS, SinglelegrobotEnvCfg
 
 
+TIP_BODIES = ["mount_link", "base_link", "hip_link", "knee_link", "foot_link"]   # what rides at the leg mount
+
+
+def read_rig(urdf_path: str) -> dict:
+    """Which rig the URDF describes, and (boom) how much static load the boom adds at the leg."""
+    root = ET.parse(urdf_path).getroot()
+    joints = {j.get("name"): j for j in root.findall("joint")}
+    if "pz_yaw" in joints:
+        radius = abs(float(joints["pz_level"].find("origin").get("xyz").split()[1]))
+        boom = next(link for link in root.findall("link") if link.get("name") == "boom_link").find("inertial")
+        mass = float(boom.find("mass").get("value"))
+        com_y = float(boom.find("origin").get("xyz").split()[1])
+        return {"type": "boom", "radius": radius, "extra_mass": mass * (-com_y) / radius}
+    if "pz_x" in joints:
+        return {"type": "rails", "radius": 0.0, "extra_mass": 0.0}
+    return {"type": "vertical", "radius": 0.0, "extra_mass": 0.0}
+
+
 class SinglelegrobotEnv(DirectRLEnv):
     cfg: SinglelegrobotEnvCfg
 
     def __init__(self, cfg: SinglelegrobotEnvCfg, render_mode: str | None = None, **kwargs):
-        # carriage mass = this leg's share of the dog minus the leg itself (set before the event manager is built)
-        share = cfg.body_mass * cfg.load_share
+        # carriage mass = this leg's share of the dog, minus the leg and (boom) the boom's weight felt at the tip.
+        # Set before the event manager is built.
+        self.rig = read_rig(cfg.robot_cfg.spawn.asset_path)
         lo, hi = cfg.payload_range
-        cfg.events.carriage_mass.params["mass_distribution_params"] = (lo * share - LEG_MASS, hi * share - LEG_MASS)
+        if cfg.mount_mass is None:      # dog-load test: the leg carries exactly its share of the dog
+            share = cfg.body_mass * cfg.load_share
+            base = LEG_MASS + self.rig["extra_mass"]
+            cfg.events.carriage_mass.params["mass_distribution_params"] = (lo * share - base, hi * share - base)
+        else:                           # real-rig match: the mount hardware as it is (counterweight lightens it)
+            cfg.events.carriage_mass.params["mass_distribution_params"] = (lo * cfg.mount_mass, hi * cfg.mount_mass)
         super().__init__(cfg, render_mode, **kwargs)
 
         # ---- indices ----
         self.dof_idx, dof_names = self.robot.find_joints(self.cfg.dof_names)
-        self.z_idx = self.robot.find_joints("pz_z")[0][0]
-        try:
-            self.x_idx = self.robot.find_joints("pz_x")[0][0]          # planar rig only
-        except ValueError:
-            self.x_idx = None
+        if self.rig["type"] == "boom":
+            self.pitch_idx = self.robot.find_joints("pz_pitch")[0][0]
+            self.level_idx = self.robot.find_joints("pz_level")[0][0]
+            self.push_dof, self.push_gain = self.pitch_idx, -1.0 / self.rig["radius"]   # +pitch lowers the tip
+        else:
+            self.push_dof, self.push_gain = self.robot.find_joints("pz_z")[0][0], 1.0
         self.foot_id = self._contact.find_bodies(self.cfg.foot_body)[0][0]
         self.foot_body_idx = self.robot.find_bodies(self.cfg.foot_body)[0][0]
         self.mount_body_idx = self.robot.find_bodies("mount_link")[0][0]
-        base_idx = self.robot.find_bodies("slider_base")[0][0]
+        tip_ids = self.robot.find_bodies(TIP_BODIES)[0]
 
-        # weight that rides the slider (after the mass randomisation at startup) and the dog's weight
+        # static load at the leg (after the mass randomisation at startup) and the dog's weight
         masses = self.robot.root_physx_view.get_masses().to(self.device)        # (num_envs, num_bodies)
-        self.moving_weight = (masses.sum(dim=1) - masses[:, base_idx]) * 9.81
+        self.moving_weight = (masses[:, tip_ids].sum(dim=1) + self.rig["extra_mass"]) * 9.81
         self.dog_weight = self.cfg.body_mass * 9.81
 
         n = self.num_envs
@@ -69,14 +102,18 @@ class SinglelegrobotEnv(DirectRLEnv):
         self._swings = torch.zeros(n, device=self.device)
         self._impact_peak = torch.zeros(n, device=self.device)
         self._vel_err_sum = torch.zeros(n, device=self.device)
+        self._distance_sum = torch.zeros(n, device=self.device)
         self._episode_sums: dict[str, torch.Tensor] = {}
         self._debug_steps = 0
 
         print(f"[INFO] Leg joints controlled by the policy: {dof_names}")
         print(f"[INFO] Links: {self.robot.body_names}")
-        print(f"[INFO] Moving mass on the slider: {self.moving_weight.mean().item() / 9.81:.2f} kg "
-              f"(target {share:.2f} kg = {self.cfg.load_share} x {self.cfg.body_mass} kg dog)")
-        print(f"[INFO] Support: {self.cfg.support_mode} | planar (pz_x): {self.x_idx is not None}")
+        target = (f"target {self.cfg.body_mass * self.cfg.load_share:.2f} kg = {self.cfg.load_share} x "
+                  f"{self.cfg.body_mass} kg dog" if self.cfg.mount_mass is None else f"real mount {self.cfg.mount_mass} kg")
+        print(f"[INFO] Load at the leg mount: {self.moving_weight.mean().item() / 9.81:.2f} kg ({target})")
+        print(f"[INFO] Rig: {self.rig['type']}" + (f" (radius {self.rig['radius']} m, boom adds "
+              f"{self.rig['extra_mass']:.2f} kg)" if self.rig["type"] == "boom" else "")
+              + f" | support: {self.cfg.support_mode} | speed command {self.cfg.fwd_speed_range} m/s")
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot_cfg)
@@ -97,16 +134,34 @@ class SinglelegrobotEnv(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
     # ---------------------------------------------------------------- readings
+    # The leg mount's position/velocity in the world works the same on every rig.
+    def mount_state(self) -> tuple[torch.Tensor, torch.Tensor]:
+        d = self.robot.data
+        pos = d.body_link_pos_w[:, self.mount_body_idx] - self.scene.env_origins
+        return pos, d.body_link_lin_vel_w[:, self.mount_body_idx]
+
+    def forward_dir(self) -> torch.Tensor:
+        """Unit vector of 'forward' at the leg: +x on rails, along the circle (tangent) on the boom."""
+        if self.rig["type"] == "boom":
+            r = self.mount_state()[0][:, :2]
+            r = r / r.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+            return torch.stack((-r[:, 1], r[:, 0], torch.zeros_like(r[:, 0])), dim=-1)    # z x r: +x at the start
+        fwd = torch.zeros(self.num_envs, 3, device=self.device)
+        fwd[:, 0] = 1.0
+        return fwd
+
     def slider_z(self) -> torch.Tensor:
-        return self.robot.data.joint_pos[:, self.z_idx]
+        """Body (leg mount) height relative to its start height [m]."""
+        return self.mount_state()[0][:, 2] - self.cfg.start_height
 
     def slider_vz(self) -> torch.Tensor:
-        return self.robot.data.joint_vel[:, self.z_idx]
+        return self.mount_state()[1][:, 2]
 
     def slider_vx(self) -> torch.Tensor:
-        if self.x_idx is None:
+        """Forward speed of the body [m/s] (0 on the vertical slider)."""
+        if self.rig["type"] == "vertical":
             return torch.zeros(self.num_envs, device=self.device)
-        return self.robot.data.joint_vel[:, self.x_idx]
+        return (self.mount_state()[1] * self.forward_dir()).sum(dim=-1)
 
     def foot_force(self) -> torch.Tensor:
         return self._contact.data.net_forces_w[:, self.foot_id].norm(dim=-1)
@@ -147,6 +202,9 @@ class SinglelegrobotEnv(DirectRLEnv):
     def _apply_action(self) -> None:
         targets = self.robot.data.default_joint_pos[:, self.dof_idx] + self.cfg.action_scale * self.actions
         self.robot.set_joint_position_target(targets, joint_ids=self.dof_idx)
+        if self.rig["type"] == "boom":      # parallelogram linkage: keep the leg upright while the boom tilts
+            pitch = self.robot.data.joint_pos[:, self.pitch_idx]
+            self.robot.set_joint_position_target(-pitch.unsqueeze(-1), joint_ids=[self.level_idx])
         self._apply_support()
         # every physics step (200 Hz): energy and torque^2 for the metrics
         tau = self.robot.data.applied_torque[:, self.dof_idx]
@@ -169,6 +227,11 @@ class SinglelegrobotEnv(DirectRLEnv):
             raise ValueError(f"support_mode must be 'active', 'passive' or 'none', not {mode!r}")
         forces = torch.zeros(self.num_envs, 1, 3, device=self.device)
         forces[:, 0, 2] = f
+        if self.rig["type"] != "vertical" and mode == "active":
+            # the other legs also keep the body moving at the commanded speed while THIS leg swings
+            swing = (~self.stance_phase()).float()
+            f_fwd = self.cfg.support_damping_x * (self.fwd_cmd - self.slider_vx()) * swing
+            forces[:, 0, :] += f_fwd.unsqueeze(-1) * self.forward_dir()
         self.robot.permanent_wrench_composer.set_forces_and_torques(
             forces=forces, body_ids=[self.mount_body_idx], is_global=True)
 
@@ -180,7 +243,8 @@ class SinglelegrobotEnv(DirectRLEnv):
             return
         pos = self.robot.data.joint_pos[ids].clone()
         vel = self.robot.data.joint_vel[ids].clone()
-        vel[:, self.z_idx] += torch.empty(len(ids), device=self.device).uniform_(-self.cfg.push_vel, self.cfg.push_vel)
+        kick = torch.empty(len(ids), device=self.device).uniform_(-self.cfg.push_vel, self.cfg.push_vel)
+        vel[:, self.push_dof] += self.push_gain * kick
         self.robot.write_joint_state_to_sim(pos, vel, env_ids=ids)
         lo, hi = self.cfg.push_interval_s
         self.push_timer[ids] = torch.empty(len(ids), device=self.device).uniform_(lo, hi)
@@ -225,8 +289,11 @@ class SinglelegrobotEnv(DirectRLEnv):
         vx = self.slider_vx()
 
         dt = self.step_dt
+        dz = z - self.cfg.stand_z
+        if self.cfg.height_mode == "floor":      # hopping: rising into a flight is fine, only sagging below costs
+            dz = torch.clamp(dz, max=0.0)
         rewards = {
-            "height": torch.exp(-torch.square(z - self.cfg.stand_z) / self.cfg.height_sigma**2) * self.cfg.rew_height * dt,
+            "height": torch.exp(-torch.square(dz) / self.cfg.height_sigma**2) * self.cfg.rew_height * dt,
             "gait": gait_match * self.cfg.rew_gait * dt,
             "clearance": swing.float() * torch.exp(-torch.square(foot_h - h_ref) / self.cfg.clearance_sigma**2)
             * self.cfg.rew_clearance * dt,
@@ -244,7 +311,7 @@ class SinglelegrobotEnv(DirectRLEnv):
             self._episode_sums[k] += v
 
         # ---- metrics ----
-        self._height_err_sum += torch.abs(z - self.cfg.stand_z)
+        self._height_err_sum += torch.abs(dz)
         self._gait_match_sum += gait_match
         swing_start = swing & self.prev_stance
         swing_end = stance & ~self.prev_stance
@@ -254,6 +321,7 @@ class SinglelegrobotEnv(DirectRLEnv):
         self._impact_peak = torch.maximum(self._impact_peak, force_bw)
         self._energy_sum += step_energy
         self._vel_err_sum += torch.abs(vx - self.fwd_cmd)
+        self._distance_sum += torch.abs(vx) * dt
         self.prev_stance = stance.clone()
 
         # ---- advance the gait clock for the next step ----
@@ -263,7 +331,8 @@ class SinglelegrobotEnv(DirectRLEnv):
         if self._debug_steps % 250 == 0:
             print(f"[STATUS] on the clock {gait_match.mean().item() * 100:.0f}% | "
                   f"body height err {torch.abs(z - self.cfg.stand_z).mean().item() * 100:.1f} cm | "
-                  f"power {(step_energy / dt).mean().item():.0f} W | peak force {force_bw.max().item():.1f} BW")
+                  f"power {(step_energy / dt).mean().item():.0f} W | peak force {force_bw.max().item():.1f} BW | "
+                  f"speed {vx.mean().item():.2f} m/s (cmd {self.fwd_cmd.mean().item():.2f})")
         return torch.sum(torch.stack(list(rewards.values())), dim=0)
 
     # ---------------------------------------------------------------- episode end
@@ -288,13 +357,17 @@ class SinglelegrobotEnv(DirectRLEnv):
         extras["Episode/torque_rms_max_Nm"] = torch.sqrt(self._tau_sq_sum[env_ids].sum(dim=0) / ep_time.sum()).max()
         extras["Episode/impact_peak_bw"] = torch.mean(self._impact_peak[env_ids])
         extras["Episode/mean_power_W"] = self._energy_sum[env_ids].sum() / ep_time.sum()
-        if self.x_idx is not None:
+        if self.rig["type"] != "vertical":
             extras["Episode/vel_error_ms"] = torch.mean(self._vel_err_sum[env_ids] / steps)
+            extras["Episode/mean_speed_ms"] = torch.mean(self._distance_sum[env_ids] / ep_time)
+            # cost of transport = battery energy / (moving weight x distance): the standard efficiency number
+            lift_dist = (self.moving_weight[env_ids] * self._distance_sum[env_ids]).sum().clamp(min=1e-3)
+            extras["Episode/cost_of_transport"] = self._energy_sum[env_ids].sum() / lift_dist
         extras["Episode_Termination/collapsed"] = torch.count_nonzero(self.reset_terminated[env_ids]).item()
         self.extras["log"] = extras
         for buf in (*self._episode_sums.values(), self._height_err_sum, self._gait_match_sum, self._swing_peak,
                     self._clear_short_sum, self._swings, self._impact_peak, self._energy_sum, self._vel_err_sum,
-                    self._tau_sq_sum, self._step_energy):
+                    self._distance_sum, self._tau_sq_sum, self._step_energy):
             buf[env_ids] = 0.0
 
         super()._reset_idx(env_ids)
