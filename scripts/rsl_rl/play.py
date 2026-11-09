@@ -9,7 +9,7 @@
 
 import argparse
 import sys
-
+import csv
 from isaaclab.app import AppLauncher
 
 # local imports
@@ -201,6 +201,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs = env.get_observations()
     timestep = 0
+
+    base = env.unwrapped
+    t, angles, speeds = [], [], []
+    step = 0
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -210,6 +214,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             actions = policy(obs)
             # env stepping
             obs, _, dones, _ = env.step(actions)
+            #append data
+            angles.append(base.robot.data.joint_pos[0, base.dof_idx].tolist())
+            speeds.append(base.robot.data.joint_vel[0, base.dof_idx].tolist())
+            t.append(step * dt)
+            step += 1
+            if step >= 250: break
             # reset recurrent states for episodes that have terminated
             if version.parse(installed_version) >= version.parse("4.0.0"):
                 policy.reset(dones)
@@ -225,7 +235,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
-
+    with open(os.path.join(log_dir, "joints.csv"), "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["time", "hip_angle", "knee_angle", "hip_speed", "knee_speed"])
+        for ti, q, qd in zip(t, angles, speeds):
+            w.writerow([ti, *q, *qd])
     # close the simulator
     env.close()
 

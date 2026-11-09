@@ -4,53 +4,79 @@
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
   name="Final2DOFLeg">
-  <!-- ===== Vertical slider + upright mount (added for Isaac Lab) =====
+  <!-- ===== Planar rig (horizontal rail + vertical slider) + upright mount (added for Isaac Lab) =====
        slider_base (bolted to the ground by fix_base=True)
-         └─ pz_z  (prismatic, vertical, no motor)        the leg can only move up and down
-             └─ mount_link  (slider carriage)
-                 └─ mount_joint (fixed, 180 deg about X)  the SolidWorks export points the leg UP; this flips it down
-                     └─ base_link -> hip_joint -> hip_link -> knee_joint -> knee_link -> foot_joint -> foot_link
-       Standing pose hip 0.9 / knee 1.4: foot is 0.31 m below the carriage, right under the hip. -->
-  <link
-    name="slider_base">
+         └─ pz_x  (prismatic, horizontal, no motor)      the body can move forward / back
+             └─ rail_link  (rail carriage)
+                 └─ pz_z  (prismatic, vertical, no motor) the body can move up / down
+                     └─ mount_link  (slider carriage; its mass is set by the env to the leg's share of the dog)
+                         └─ mount_joint (fixed)  flips the SolidWorks leg down and turns the hip housing 90 deg so its bracket faces backward
+                             └─ base_link -> hip_joint -> hip_link -> knee_joint -> knee_link -> foot_joint -> foot_link
+       Standing pose hip 0.80 / knee 0.85: foot ~0.36 m below the carriage, ~4 cm ahead of the hip. -->
+    <!-- ===== Radial boom planarizer (added for Isaac Lab) =====
+       radius 1.5 m, boom 2.0 kg, counterweight 6.8 kg at 0.3 m behind the post,
+       pivot 0.42 m above the ground (the leg's carriage starts at this height). -->
+  <link name="post_base">
     <inertial>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
-      <mass
-        value="1.0" />
-      <inertia
-        ixx="0.001"
-        ixy="0"
-        ixz="0"
-        iyy="0.001"
-        iyz="0"
-        izz="0.001" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="5.0" />
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.21" rpy="0 0 0" />
+      <geometry><cylinder radius="0.03" length="0.42" /></geometry>
+    </visual>
+  </link>
+  <joint name="pz_yaw" type="continuous">
+    <!-- boom swings around the post: tip speed = radius x yaw rate = the leg's forward speed -->
+    <origin xyz="0 0 0.42" rpy="0 0 0" />
+    <parent link="post_base" />
+    <child link="yaw_link" />
+    <axis xyz="0 0 1" />
+    <limit effort="1000" velocity="20" />
+    <dynamics damping="0.01" friction="0" />
+  </joint>
+  <link name="yaw_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.1" />
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001" />
     </inertial>
   </link>
-  <joint
-    name="pz_z"
-    type="prismatic">
-    <!-- start height of the carriage [m]: standing needs 0.31, so the foot starts ~5 cm up and drops -->
-    <origin
-      xyz="0 0 0.36"
-      rpy="0 0 0" />
-    <parent
-      link="slider_base" />
-    <child
-      link="mount_link" />
-    <axis
-      xyz="0 0 1" />
-    <!-- travel from the start height [m]: down 0.30 (deep crouch), up 0.30 (hops) -->
-    <limit
-      lower="-0.40"
-      upper="0.40"
-      effort="1000"
-      velocity="20" />
-    <dynamics
-      damping="0.01"
-      friction="0" />
+  <joint name="pz_pitch" type="revolute">
+    <!-- boom tilts: +pitch lowers the tip. +-0.35 rad = about +-0.52 m of vertical travel -->
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="yaw_link" />
+    <child link="boom_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.35" upper="0.35" effort="1000" velocity="20" />
+    <dynamics damping="0.01" friction="0" />
   </joint>
+  <link name="boom_link">
+    <inertial>
+      <origin xyz="0 0.061364 0" rpy="0 0 0" />
+      <mass value="8.8" />
+      <inertia ixx="2.078864" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="2.078864" />
+    </inertial>
+    <visual>
+      <origin xyz="0 -0.75 0" rpy="1.5708 0 0" />
+      <geometry><cylinder radius="0.015" length="1.5" /></geometry>
+    </visual>
+    <visual>
+      <origin xyz="0 0.3 0" rpy="0 0 0" />
+      <geometry><sphere radius="0.05" /></geometry>
+    </visual>
+  </link>
+  <joint name="pz_level" type="revolute">
+    <!-- parallelogram linkage: held at -pz_pitch by the env (stiff PD), so the leg stays upright -->
+    <origin xyz="0 -1.5 0" rpy="0 0 0" />
+    <parent link="boom_link" />
+    <child link="mount_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.44999999999999996" upper="0.44999999999999996" effort="1000" velocity="20" />
+    <dynamics damping="0.01" friction="0" />
+  </joint>
+  <!-- ===== end of boom ===== -->
   <link
     name="mount_link">
     <inertial>
@@ -73,8 +99,8 @@
     name="mount_joint"
     type="fixed">
     <origin
-      xyz="0 0 0"
-      rpy="3.14159265 0 0" />
+      xyz="-0.0966388 0 -0.0924512"
+      rpy="0 -1.57079633 3.14159265" />
     <parent
       link="mount_link" />
     <child
@@ -178,10 +204,10 @@
       upper="1.5708"
       effort="18.25"
       velocity="38.01327" />
-  </joint>
-  <dynamics
+    <dynamics
       damping="0.05"
       friction="0.15" />
+  </joint>
   <link
     name="knee_link">
     <inertial>

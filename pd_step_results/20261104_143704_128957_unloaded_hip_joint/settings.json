@@ -1,0 +1,48 @@
+{
+  "task": "Template-Singlelegrobot-Direct-v0",
+  "fixture": "unloaded",
+  "joint": "hip_joint",
+  "kp": 84.0,
+  "kd": 2.75,
+  "other_joint_kp": 42.0,
+  "other_joint_kd": 3.5,
+  "seed": 42,
+  "dt_s": 0.005,
+  "armature": [
+    0.007413310930132866,
+    0.003072423627600074
+  ],
+  "masses_kg": [
+    1.0,
+    4.987048149108887,
+    1.0533323287963867,
+    0.39155274629592896,
+    0.13537372648715973,
+    0.19827106595039368
+  ],
+  "body_order": [
+    "slider_base",
+    "mount_link",
+    "base_link",
+    "hip_link",
+    "knee_link",
+    "foot_link"
+  ],
+  "runtime_stiffness": [
+    84.0,
+    42.0
+  ],
+  "runtime_damping": [
+    2.75,
+    3.5
+  ],
+  "joint_order": [
+    "hip_joint",
+    "knee_joint"
+  ],
+  "nominal_rad": [
+    0.800000011920929,
+    0.8500000238418579
+  ],
+  "support": "off; no gait clock or task support wrench applied"
+}

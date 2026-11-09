@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Template for Isaac Lab Projects
 
 ## Overview
@@ -133,3 +134,7 @@ Some examples of packages that can likely be excluded are:
 "<path-to-isaac-sim>/extscache/omni.services.*"     // Services tools
 ...
 ```
+=======
+# SingleLegRobot
+Master's thesis project that uses Isaac Lab/Isaac Sim to train a single leg from a quadruped bult by the CPLRG quadruped group at CalPoly. The single leg is trained using a PPO algorithm through the rsl-rl library with an MLP policy neural network. The robot will be implemented into a test rig through sim-to-real data transfer.
+>>>>>>> 0632ea24dd8a0d76aa2fac69b2cdb2b782a86a94
