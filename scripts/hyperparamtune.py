@@ -10,34 +10,34 @@ import sys
 TASK = "Template-Singlelegrobot-Direct-v0"
 TRAIN = "scripts/rsl_rl/train.py"
 LOG_ROOT = "logs/rsl_rl/single_leg_direct"
-ITERATION = 300
-NUM_ENVS = 512
+ITERATION = 200
+NUM_ENVS = 1024
 SEED = 42
-STUDY = "trot_v2"
-DB = "sqlite:///logs/optuna/trot_v2.db"
+STUDY = "trot_v5"
+DB = "sqlite:///logs/optuna/trot_v5.db"
 CHECK_EVERY = 60 # seconds
-TRIALS = 100
+TRIALS = 50
 PLOTS = "logs/optuna/plots"
 OBJECTIVE_TAG = "Episode/contact_match"  # the one metric the tuner optimizes
 
-
+# selected a range from our initial test of the system without tuning
 SEARCH = {
     # positive rewards
-    "rew_height": (0.5, 6.0, False),
-    "rew_gait": (0.5, 8.0, False),
-    "rew_clearance": (0.0, 8.0, False),
-    "rew_track_vel": (0.5, 8.0, False),
+    #"rew_height": (0.5, 6.0, False),
+    "rew_gait": (1, 8.0, False),
+    "rew_clearance": (0.5, 6.0, False),
+    "rew_track_vel": (1.0, 8.0, False),
     # penalties (entered positive, made negative in objective)
-    "rew_energy": (0.0005, 0.05, True),
+    "rew_energy": (0.0005, 0.02, True),
     "rew_impact": (0.005, 1.0, True),
-    "rew_foot_slip": (1.0, 50.0, True),
+    "rew_foot_slip": (1.0, 40.0, True),
     "rew_action_rate": (0.001, 0.05, True),
-    "rew_collapse": (1.0, 50.0, True),
+    #"rew_collapse": (1.0, 50.0, True),
     # reward shape
-    "height_sigma": (0.01, 0.08, True),
-    "clearance_sigma": (0.01, 0.1, True),
-    "vel_sigma": (0.05, 0.4, True),
-    "impact_threshold_bw": (1.5, 5.0, False),
+    "height_sigma": (0.02, 0.08, True),
+    "clearance_sigma": (0.02, 0.1, True),
+    "vel_sigma": (0.05, 0.35, True),
+    #"impact_threshold_bw": (1.5, 5.0, False),
 }
 PENALTIES = {"rew_energy", "rew_impact", "rew_foot_slip", "rew_action_rate", "rew_collapse"}
 
@@ -48,7 +48,12 @@ TAGS = {"height_err": "Episode/body_height_error_cm",
         "impact": "Episode/impact_peak_bw",
         "power": "Episode/mean_power_W",}
 
-
+FIXED = {
+    "rew_height": 2.0,
+    "rew_collapse": -5.0,
+    "impact_threshold_bw": 2.5,
+    "height_mode": "floor",
+}
 def read_metrics(run_dir):
     event_acc = EventAccumulator(run_dir)
     event_acc.Reload()
@@ -85,8 +90,7 @@ def objective(trial):
             value = -value
         overrides.append(f"env.{name}={value}")
     
-    height_mode = trial.suggest_categorical("height_mode", ["floor", "level"])
-    overrides.append(f"env.height_mode={height_mode}")
+    overrides += [f"env.{name}={value}" for name, value in FIXED.items()]
 
     #my model 
     # training model
@@ -95,13 +99,13 @@ def objective(trial):
            f"--max_iterations={ITERATION}", f"--num_envs={NUM_ENVS}",
            f"--run_name={run_name}"] + overrides
     with open(f"logs/optuna/v2_trial_{trial.number:03d}.log", "w") as log:
-        subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT)
+        subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT) # runs training and logs the data into v2_trial
     
     # given the score of the model
     runs = sorted(glob.glob(f"{LOG_ROOT}/*_{run_name}"))
     if not runs:
         raise RuntimeError(f"trial {trial.number} produced no run folder, see its log")
-    event_acc = EventAccumulator(runs[-1])
+    event_acc = EventAccumulator(runs[-1]) # takes our data and inputs it into our bestscore algorithm
     event_acc.Reload()
     return find_best_score(event_acc.Scalars(OBJECTIVE_TAG), window_percentage=0.1)
 
@@ -113,7 +117,7 @@ if __name__ == "__main__":
                                 storage = DB,
                                 direction = "maximize",
                                 load_if_exists=True,
-                                sampler = optuna.samplers.TPESampler(seed=SEED))
+                                sampler = optuna.samplers.RandomSampler(seed=SEED)) # ran TPE first 
     #Run optimization
     print("Start Optimization")
     study.optimize(objective, n_trials=TRIALS, catch=(RuntimeError, KeyError))
@@ -123,13 +127,12 @@ if __name__ == "__main__":
     print("Best Configuration Parameters:")
     for key, value in study.best_params.items():
         print(f" {key}: {value}")
-
+    
     top = list(optuna.importance.get_param_importances(study))
-    #Visualize Results
-    vis.plot_optimization_history(study).write_html(f"{PLOTS}/history.html")
-    vis.plot_contour(study, params=["rew_gait", "rew_foot_slip"]).write_html(f"{PLOTS}/contour.html")
-    vis.plot_slice(study, params=top[:6]).write_html(f"{PLOTS}/slice.html")
-    vis.plot_param_importances(study).write_html(f"{PLOTS}/importance.html")
-    vis.plot_parallel_coordinate(study, params=top[:6]).write_html(f"{PLOTS}/parallel.html")
+    vis.plot_optimization_history(study).write_html("optimization_history.html")
+    vis.plot_contour(study, params=["rew_gait", "rew_foot_slip"]).write_html("contour.html")
+    vis.plot_slice(study, params=top[:6]).write_html("slice.html")
+    vis.plot_param_importances(study).write_html("param_importances.html")
+    vis.plot_parallel_coordinate(study, params=top[:6]).write_html("parallel_coordinates.html")
     vis.plot_optimization_history(study, target=lambda t: t.user_attrs["torque_rms"],
-                                  target_name="torque RMS (Nm)").write_html(f"{PLOTS}/torque_history.html")
+                                     target_name="torque RMS (Nm)").write_html("torque_rms_optimization_history.html")

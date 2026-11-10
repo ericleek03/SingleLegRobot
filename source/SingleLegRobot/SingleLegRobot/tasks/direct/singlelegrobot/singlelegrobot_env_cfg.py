@@ -31,7 +31,7 @@ from isaaclab.utils import configclass
 
 from SingleLegRobot.robots.single_leg import SINGLE_LEG_CONFIG
 
-LEG_MASS = 1.78     # base_link + hip_link + knee_link + foot_link [kg], from the URDF
+LEG_MASS = 2.05     # base_link + hip_link + knee_link + foot_link [kg], from the URDF
 
 
 @configclass
@@ -112,7 +112,7 @@ class SinglelegrobotEnvCfg(DirectRLEnvCfg):
     support_damping_x = 100.0          # [N s/m] active + planar: keeps the body at the commanded speed during swing
 
     # ---- commands (sampled every episode) ----
-    gait_freq_range = (2.0, 3.0)       # [Hz] hops per second (2 Hz -> 0.3 s flights, 3 Hz -> 0.2 s)
+    gait_freq_range = (2.8, 3.5)       # [Hz] hops per second (2 Hz -> 0.3 s flights, 3 Hz -> 0.2 s)
     swing_height_range = (0.03, 0.07)  # [m]  peak foot height in swing
     duty_factor = 0.4                  # share of each cycle on the ground: < 0.5 = hopping with a flight phase
                                        # (supported trot ~0.55)
@@ -131,7 +131,7 @@ class SinglelegrobotEnvCfg(DirectRLEnvCfg):
     rew_clearance = 4.0                # foot follows a smooth swing arc up to the commanded height
     clearance_sigma = 0.05             # [m] wide: any lift of the foot already pays
     rew_energy = -0.002                # per J of battery energy (not per second). Stage 2: -0.02
-    rew_impact = -0.02                 # touchdown force above impact_threshold_bw (dog body weights). Stage 2: -0.1
+    rew_impact = -0.05                 # touchdown force above impact_threshold_bw (dog body weights). Stage 2: -0.1
     impact_threshold_bw = 2.5
     rew_foot_slip = -5.0               # per m/s of sole sliding while in contact. Stage 2: -20
     rew_action_rate = -0.005           # smooth commands. Stage 2: -0.02

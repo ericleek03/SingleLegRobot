@@ -12,7 +12,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 @configclass
 class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 250 
+    max_iterations = 1200 
     save_interval = 50
     experiment_name = "single_leg_direct"
     policy = RslRlPpoActorCriticCfg(
@@ -21,7 +21,7 @@ class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
         critic_obs_normalization=False,
         actor_hidden_dims=[128, 128],
         critic_hidden_dims=[128, 128],
-        activation="elu",
+        activation="elu", #ELU is usually recommended  for locomotion. 
 
     )
     algorithm = RslRlPpoAlgorithmCfg(
